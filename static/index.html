@@ -1,10 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
+    <meta charset="UTF-8">
+    <title>The Gang - Online</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="script.js" defer></script>
 </head>
 <body>
-$END$
+    <div id="game-container">
+        <div id="status-bar">
+            <div>
+                <h2 id="phase-display">Lobby</h2>
+            </div>
+            <div id="score-board">
+                <span style="color: #f1c40f">💰 Vaults: <span id="vault-count">0</span>/3</span>
+                &nbsp;|&nbsp;
+                <span style="color: #e74c3c">🚨 Alarms: <span id="alarm-count">0</span>/3</span>
+            </div>
+            <button id="start-btn" onclick="startGame()">Start Heist (Requires 3+)</button>
+        </div>
+
+        <div id="opponents-row" class="row">
+            </div>
+
+        <div id="table-area">
+            <div id="community-cards" class="card-container"></div>
+            <div id="chip-bank" class="chip-container">
+                </div>
+            <div id="chip-label">Bank</div>
+        </div>
+
+        <div id="player-area">
+            <div id="my-info">
+                <div id="name-controls">
+                    <input type="text" id="name-input" placeholder="Enter Name">
+                    <button id="name-btn" onclick="changeName()">Update</button>
+                </div>
+                <h3><span id="my-name">Me</span></h3>
+
+                <div id="my-cards" class="card-container"></div>
+
+                <div id="my-history" class="chip-history" style="margin-top: 10px; justify-content: flex-start;"></div>
+            </div>
+
+            <div id="controls">
+                <div id="my-chip-slot">
+                    <span class="placeholder">No Chip</span>
+                </div>
+                <button id="return-btn" onclick="returnChip()" disabled>Return Chip</button>
+                <button id="settle-btn" onclick="toggleSettle()" disabled>I'm Settled</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

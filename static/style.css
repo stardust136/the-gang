@@ -1,0 +1,63 @@
+body { font-family: sans-serif; background-color: #2c3e50; color: white; margin: 0; display: flex; justify-content: center;}
+#game-container { width: 100%; max-width: 900px; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+
+/* Status Bar */
+#status-bar { display: flex; justify-content: space-between; align-items: center; background: #34495e; padding: 10px 20px; border-radius: 8px;}
+#score-board { font-weight: bold; font-size: 1.1em; background: #2c3e50; padding: 5px 15px; border-radius: 4px; border: 1px solid #7f8c8d;}
+
+/* Cards */
+.card { background: white; color: black; border-radius: 4px; width: 40px; height: 56px; display: flex; justify-content: center; align-items: center; font-weight: bold; border: 1px solid #999; flex-shrink: 0;}
+.card.red-suit { color: red; }
+.card-container { display: flex; gap: 5px; }
+
+/* Small Cards for Opponents */
+.small-card { width: 30px; height: 42px; font-size: 0.8em; }
+.card-container.small { justify-content: center; margin: 5px 0; }
+
+/* Chips */
+.chip { padding: 5px 10px; border: 2px solid #333; border-radius: 50%; font-weight: bold; cursor: pointer; color: black; min-width: 40px;}
+.chip-white { background: #ecf0f1; }
+.chip-yellow { background: #f1c40f; }
+.chip-orange { background: #e67e22; }
+.chip-red { background: #c0392b; color: white; }
+
+/* Mini Chips (History) */
+.chip-history { display: flex; gap: 3px; justify-content: center; margin-top: 5px; }
+.mini-chip { font-size: 0.7em; padding: 2px 5px; border-radius: 10px; border: 1px solid #333; color: black; font-weight: bold;}
+
+/* Zones */
+#opponents-row { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;}
+.player-card { background: #34495e; padding: 10px; border-radius: 8px; width: 120px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 160px;}
+.player-card.settled { border: 2px solid #2ecc71; }
+.player-card.thinking { border: 2px solid #95a5a6; }
+
+#table-area { background: #27ae60; padding: 20px; border-radius: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; min-height: 150px;}
+
+#player-area { background: #2c3e50; border-top: 2px solid #7f8c8d; padding-top: 20px; display: flex; justify-content: space-between; align-items: center; }
+
+#controls { display: flex; gap: 10px; align-items: center; }
+#settle-btn { padding: 10px 20px; background: #95a5a6; border: none; cursor: pointer; color: white; border-radius: 4px;}
+#settle-btn.active { background: #2ecc71; }
+#settle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.chip-container.disabled { pointer-events: none; opacity: 0.5; }
+.p-hand { font-size: 2em; margin: 5px 0; }
+
+#name-controls {
+    margin-bottom: 10px;
+}
+#name-input {
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    width: 100px;
+}
+#name-btn {
+    padding: 5px 10px;
+    background: #34495e;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+}
+#name-btn:hover { background: #2c3e50; }
