@@ -159,6 +159,8 @@ async def start_game(sid):
     # Optionally: restrict who can start; for now keep your original behavior
     if game.start_game():
         await broadcast_state()
+    else:
+        await sio.emit("game_action_error", "Need at least 3 players to start a heist.", room=sid)
 
 
 @sio.event
@@ -202,7 +204,7 @@ async def restart_game(sid):
     if game.restart_full_game():
         await broadcast_state()
     else:
-        await sio.emit("error", "Need at least 3 players to restart.", room=sid)
+        await sio.emit("game_action_error", "Need at least 3 players to restart.", room=sid)
 
 
 @sio.event

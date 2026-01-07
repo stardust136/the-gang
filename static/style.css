@@ -426,6 +426,26 @@ body { font-family: sans-serif; background-color: #2c3e50; color: white; margin:
   opacity: 1;
 }
 
+#game-action-toast {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid #f1c40f;
+  color: #fdf6d0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.9em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+#game-action-toast.show {
+  opacity: 1;
+}
+
 .p-name-btn {
   background: transparent;
   border: none;

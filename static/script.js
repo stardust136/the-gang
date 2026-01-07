@@ -11,6 +11,7 @@ let showResultDetails = false;
 let lastState = null;
 const TOMATO_LIFETIME_MS = 3000;
 const TOMATO_FLIGHT_MS = 650;
+const GAME_ACTION_TOAST_MS = 3000;
 let tomatoClearTimeout = null;
 let lastTomatoEventId = null;
 let pendingTomatoEvent = null;
@@ -19,6 +20,7 @@ let activeTomatoExpiresAt = 0;
 let activeTomatoShowAt = 0;
 let tomatoImpactTimeout = null;
 let openTomatoMenu = null;
+let gameActionToastTimeout = null;
 
 // --- Socket ---
 const socket = io();
@@ -46,6 +48,9 @@ socket.on("request_join", () => {
 socket.on("game_update", renderGame);
 
 socket.on("error", alert);
+socket.on("game_action_error", (message) => {
+  showGameActionToast(message);
+});
 socket.on("tomato_event", (event) => {
   if (!lastState) {
     pendingTomatoEvent = event;
@@ -743,6 +748,31 @@ function updateTomatoToast(text) {
 
   toast.textContent = text;
   toast.classList.add("show");
+}
+
+function showGameActionToast(text) {
+  const container = $("game-container");
+  if (!container) return;
+  let toast = $("game-action-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "game-action-toast";
+    container.appendChild(toast);
+  }
+
+  if (!text) {
+    toast.classList.remove("show");
+    toast.textContent = "";
+    return;
+  }
+
+  toast.textContent = text;
+  toast.classList.add("show");
+
+  if (gameActionToastTimeout) clearTimeout(gameActionToastTimeout);
+  gameActionToastTimeout = setTimeout(() => {
+    toast.classList.remove("show");
+  }, GAME_ACTION_TOAST_MS);
 }
 
 function createCardDiv(card) {
