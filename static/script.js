@@ -9,6 +9,12 @@ let myName = localStorage.getItem("player_name") || "";
 let isObserver = localStorage.getItem("observer_mode") === "true";
 let showResultDetails = false;
 let lastState = null;
+let audioCtx = null;
+let audioReady = false;
+let noiseBuffer = null;
+let lastChipsAvailableCount = null;
+let lastCommunityCount = null;
+let lastMyHandCount = null;
 const TOMATO_LIFETIME_MS = 3000;
 const TOMATO_FLIGHT_MS = 650;
 const GAME_ACTION_TOAST_MS = 3000;
@@ -29,6 +35,149 @@ const $ = (id) => document.getElementById(id);
 const chatForm = $("chat-form");
 const chatInput = $("chat-input");
 const chatMessagesEl = $("chat-messages");
+
+// --- Audio ---
+function initAudioContext() {
+  if (!audioCtx) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return null;
+    audioCtx = new AudioContext();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume().catch(() => {});
+  }
+  audioReady = audioCtx.state === "running";
+  return audioCtx;
+}
+
+function unlockAudio() {
+  const ctx = initAudioContext();
+  if (!ctx) return;
+  ctx.resume().then(() => {
+    audioReady = ctx.state === "running";
+  }).catch(() => {});
+}
+
+document.addEventListener("pointerdown", unlockAudio, { once: true });
+document.addEventListener("keydown", unlockAudio, { once: true });
+
+function getNoiseBuffer(ctx) {
+  if (noiseBuffer) return noiseBuffer;
+  const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i += 1) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  noiseBuffer = buffer;
+  return buffer;
+}
+
+function playTone({ type = "sine", freq = 440, duration = 0.12, gain = 0.2, detune = 0 }) {
+  if (!audioReady) return;
+  const ctx = initAudioContext();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.detune.value = detune;
+  g.gain.value = 0.0001;
+  osc.connect(g);
+  g.connect(ctx.destination);
+  const now = ctx.currentTime;
+  g.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  osc.start(now);
+  osc.stop(now + duration + 0.02);
+}
+
+function playNoise({ duration = 0.2, gain = 0.2, highpass = 0, lowpass = 0 }) {
+  if (!audioReady) return;
+  const ctx = initAudioContext();
+  if (!ctx) return;
+  const src = ctx.createBufferSource();
+  src.buffer = getNoiseBuffer(ctx);
+  const g = ctx.createGain();
+  g.gain.value = 0.0001;
+  let lastNode = src;
+  if (highpass > 0) {
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = highpass;
+    lastNode.connect(hp);
+    lastNode = hp;
+  }
+  if (lowpass > 0) {
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = lowpass;
+    lastNode.connect(lp);
+    lastNode = lp;
+  }
+  lastNode.connect(g);
+  g.connect(ctx.destination);
+  const now = ctx.currentTime;
+  g.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  src.start(now);
+  src.stop(now + duration + 0.02);
+}
+
+function playChipSound() {
+  playTone({ type: "square", freq: 750, duration: 0.08, gain: 0.08 });
+  playTone({ type: "triangle", freq: 520, duration: 0.1, gain: 0.06, detune: -20 });
+}
+
+function playChipTakenSound() {
+  playTone({ type: "sawtooth", freq: 260, duration: 0.14, gain: 0.08, detune: -40 });
+}
+
+function playChipSwapSound() {
+  playTone({ type: "square", freq: 680, duration: 0.06, gain: 0.07 });
+  playTone({ type: "triangle", freq: 420, duration: 0.08, gain: 0.06, detune: 15 });
+}
+
+function playSettleSound(active) {
+  if (active) {
+    playTone({ type: "sine", freq: 520, duration: 0.12, gain: 0.08 });
+    playTone({ type: "sine", freq: 780, duration: 0.14, gain: 0.06 });
+  } else {
+    playTone({ type: "sine", freq: 460, duration: 0.12, gain: 0.07 });
+    playTone({ type: "sine", freq: 330, duration: 0.14, gain: 0.06 });
+  }
+}
+
+function playTomatoThrowSound() {
+  playNoise({ duration: 0.35, gain: 0.12, highpass: 600, lowpass: 2500 });
+}
+
+function playTomatoSplatSound() {
+  playNoise({ duration: 0.25, gain: 0.18, lowpass: 900 });
+  playTone({ type: "sine", freq: 120, duration: 0.2, gain: 0.12 });
+}
+
+function playDealSound(count) {
+  const ctx = initAudioContext();
+  if (!audioReady || !ctx) return;
+  const perCardGap = 0.06;
+  for (let i = 0; i < count; i += 1) {
+    const when = ctx.currentTime + i * perCardGap;
+    const src = ctx.createBufferSource();
+    src.buffer = getNoiseBuffer(ctx);
+    const g = ctx.createGain();
+    g.gain.value = 0.0001;
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 1200;
+    src.connect(hp);
+    hp.connect(g);
+    g.connect(ctx.destination);
+    g.gain.exponentialRampToValueAtTime(0.06, when + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.08);
+    src.start(when);
+    src.stop(when + 0.1);
+  }
+}
 
 // --- Socket Listeners ---
 socket.on("connect", () => {
@@ -263,6 +412,7 @@ function buildResultDetails(details) {
 
 // --- Rendering ---
 function renderGame(state) {
+  const prevState = lastState;
   lastState = state;
   // If we haven't joined yet, state.me can be null
   const me = state?.me;
@@ -355,6 +505,52 @@ function renderGame(state) {
       </div>
       ${detailsHtml}
     `;
+  }
+
+  if (prevState) {
+    const prevChips = prevState.chips_available?.length ?? null;
+    const nextChips = chips_available?.length ?? null;
+    if (
+      prevChips !== null &&
+      nextChips !== null &&
+      nextChips < prevChips &&
+      (lastChipsAvailableCount === null || nextChips !== lastChipsAvailableCount)
+    ) {
+      playChipSound();
+    }
+    lastChipsAvailableCount = nextChips;
+
+    const prevCommunity = prevState.community_cards?.length ?? null;
+    const nextCommunity = community_cards?.length ?? null;
+    if (prevCommunity !== null && nextCommunity !== null && nextCommunity > prevCommunity) {
+      playDealSound(nextCommunity - prevCommunity);
+    }
+    lastCommunityCount = nextCommunity;
+
+    const prevHandCount = prevState.me?.hand?.length ?? null;
+    const nextHandCount = me?.hand?.length ?? null;
+    if (prevHandCount !== null && nextHandCount !== null && nextHandCount > prevHandCount) {
+      playDealSound(nextHandCount - prevHandCount);
+    }
+    lastMyHandCount = nextHandCount;
+
+    const prevMyChip = prevState.me?.chip ?? null;
+    const nextMyChip = me?.chip ?? null;
+    if (prevMyChip && !nextMyChip) {
+      playChipTakenSound();
+    } else if (prevMyChip && nextMyChip && prevMyChip !== nextMyChip) {
+      playChipSwapSound();
+    }
+
+    const prevSettled = Boolean(prevState.me?.is_settled);
+    const nextSettled = Boolean(me?.is_settled);
+    if (prevSettled !== nextSettled) {
+      playSettleSound(nextSettled);
+    }
+  } else {
+    lastChipsAvailableCount = chips_available?.length ?? null;
+    lastCommunityCount = community_cards?.length ?? null;
+    lastMyHandCount = me?.hand?.length ?? null;
   }
 
   // 2. Community Cards
@@ -616,15 +812,19 @@ function applyTomatoEffect(event, me, playerAreaEl) {
   }
 
   if (sourceEl && targetEl) {
+    playTomatoThrowSound();
     animateTomatoFlight(sourceEl, targetEl);
     scheduleTomatoImpact(targetId, me, playerAreaEl, TOMATO_FLIGHT_MS);
     updateTomatoToast(`🍅 ${event.from_name} splats ${event.to_name}!`);
     scheduleTomatoClear();
   } else if (targetEl) {
+    playTomatoThrowSound();
     targetEl.classList.add("tomato-hit");
+    playTomatoSplatSound();
     updateTomatoToast(`🍅 ${event.from_name} splats ${event.to_name}!`);
     scheduleTomatoClear();
   } else {
+    playTomatoThrowSound();
     updateTomatoToast(`🍅 ${event.from_name} splats ${event.to_name}!`);
     scheduleTomatoClear();
   }
@@ -668,6 +868,7 @@ function scheduleTomatoImpact(targetId, me, playerAreaEl, delayMs) {
     if (targetEl) {
       targetEl.classList.add("tomato-hit");
     }
+    playTomatoSplatSound();
   }, Math.max(0, delayMs));
 }
 
