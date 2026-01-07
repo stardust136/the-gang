@@ -461,7 +461,8 @@ function renderGame(state) {
       const disconnectedClass = o.is_connected === false ? "disconnected" : "";
       pill.className = `observer-pill ${disconnectedClass}`;
       const youTag = (isObserverView && o.player_id === me.player_id) ? " (You)" : "";
-      pill.textContent = `${o.name}${youTag}`;
+      const queueTag = o.queued_to_join ? " (QUEUING)" : "";
+      pill.textContent = `${o.name}${queueTag}${youTag}`;
       observerListEl.appendChild(pill);
     });
   }

@@ -27,6 +27,7 @@ class Player:
         self.player_id = player_id
         self.name = name
         self.is_observer: bool = False
+        self.queued_to_join: bool = False
 
         self.hand_ints: List[int] = []
         self.hand_str: List[dict] = []
@@ -44,6 +45,7 @@ class Player:
             'player_id': self.player_id,
             'name': self.name,
             'is_observer': self.is_observer,
+            'queued_to_join': self.queued_to_join,
             'hand': self.hand_str if include_hand else [],
             'chip': self.chip,
             'chip_history': self.chip_history,
@@ -108,15 +110,22 @@ class Game:
             self.players[player_id] = Player(player_id=player_id, name=name)
             if self.game_started and not is_observer:
                 self.players[player_id].is_observer = True
-                return True, "Joined as observer until the next hand."
+                self.players[player_id].queued_to_join = True
+                return True, "Queued to join next hand."
             self.players[player_id].is_observer = is_observer
+            self.players[player_id].queued_to_join = False
             return True, "Joined."
         else:
             p = self.players[player_id]
             # Allow updating name on reconnect (still enforces uniqueness above)
             p.name = name
             force_observer = self.game_started and not is_observer and len(p.hand_ints) < 2
-            p.is_observer = True if force_observer else is_observer
+            if force_observer:
+                p.is_observer = True
+                p.queued_to_join = True
+            else:
+                p.is_observer = is_observer
+                p.queued_to_join = False
             p.is_connected = True
             p.disconnected_at = None
             if p.is_observer:
@@ -129,7 +138,7 @@ class Game:
                 p.hand_str = []
                 p.chip_history = []
             if force_observer:
-                return True, "Reconnected as observer until the next hand."
+                return True, "Queued to join next hand."
             return True, "Reconnected."
 
     def handle_disconnect(self, connection_sid: str) -> bool:
@@ -260,9 +269,14 @@ class Game:
     # Game flow
     # -------------------------
     def start_game(self) -> bool:
-        active_players = [p for p in self.players.values() if not p.is_observer]
+        queued_players = [p for p in self.players.values() if p.queued_to_join]
+        active_players = [p for p in self.players.values() if not p.is_observer] + queued_players
         if len(active_players) < 3:
             return False
+
+        for p in queued_players:
+            p.is_observer = False
+            p.queued_to_join = False
 
         # Reset global win/lose if finished previously
         if self.vaults >= 3 or self.alarms >= 3:
