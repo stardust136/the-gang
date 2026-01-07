@@ -205,6 +205,24 @@ async def restart_game(sid):
         await sio.emit("error", "Need at least 3 players to restart.", room=sid)
 
 
+@sio.event
+async def throw_tomato(sid, data):
+    requester_pid = game.player_id_from_connection(sid)
+    if not requester_pid:
+        await sio.emit("error", "Not joined yet.", room=sid)
+        return
+
+    target_pid = (data or {}).get("target_player_id", "").strip()
+    ok, msg = game.throw_tomato(requester_pid, target_pid)
+    if not ok:
+        await sio.emit("error", msg, room=sid)
+        return
+
+    await sio.emit("tomato_event", game.tomato_event)
+    await broadcast_state()
+
+
+
 if __name__ == "__main__":
     import uvicorn
     print("Starting server on http://localhost:3000/static/index.html")

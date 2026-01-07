@@ -14,6 +14,7 @@ CHIP_COLORS = {
     'SHOWDOWN': 'Red',
     'RESULT': 'Red'
 }
+TOMATO_LIFETIME_SEC = 3.0
 
 
 class Player:
@@ -75,6 +76,7 @@ class Game:
         self.alarms = 0
         self.chat_messages: List[dict] = []
         self.result_details: Dict[str, List[dict]] = {}
+        self.tomato_event: Optional[dict] = None
 
     # -------------------------
     # Connection / identity API
@@ -230,6 +232,29 @@ class Game:
         })
         if len(self.chat_messages) > 100:
             self.chat_messages = self.chat_messages[-100:]
+
+    # -------------------------
+    # Fun actions
+    # -------------------------
+    def throw_tomato(self, actor_player_id: str, target_player_id: str) -> Tuple[bool, str]:
+        actor = self.players.get(actor_player_id)
+        target = self.players.get(target_player_id)
+        if not actor or not target:
+            return False, "Player not found."
+        if actor_player_id == target_player_id:
+            return False, "Cannot target yourself."
+        if target.is_observer:
+            return False, "Cannot target an observer."
+
+        self.tomato_event = {
+            "id": int(time.time() * 1000),
+            "from_id": actor.player_id,
+            "from_name": actor.name,
+            "to_id": target.player_id,
+            "to_name": target.name,
+            "at": time.time()
+        }
+        return True, "Tomato thrown."
 
     # -------------------------
     # Game flow
@@ -568,6 +593,10 @@ class Game:
 
         me_obj = self.players.get(for_player_id) if for_player_id else None
         viewer_is_observer = bool(me_obj and me_obj.is_observer)
+        tomato_event = self.tomato_event
+        if tomato_event and time.time() - tomato_event.get("at", 0) > TOMATO_LIFETIME_SEC:
+            self.tomato_event = None
+            tomato_event = None
 
         return {
             'phase': safe_phase if self.game_started else "LOBBY",
@@ -584,7 +613,8 @@ class Game:
             'result_details': self.result_details if show_all else None,
             'vaults': self.vaults,
             'alarms': self.alarms,
-            'chat_messages': self.chat_messages
+            'chat_messages': self.chat_messages,
+            'tomato_event': tomato_event
         }
 
     # -------------------------

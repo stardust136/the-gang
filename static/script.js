@@ -9,6 +9,16 @@ let myName = localStorage.getItem("player_name") || "";
 let isObserver = localStorage.getItem("observer_mode") === "true";
 let showResultDetails = false;
 let lastState = null;
+const TOMATO_LIFETIME_MS = 3000;
+const TOMATO_FLIGHT_MS = 650;
+let tomatoClearTimeout = null;
+let lastTomatoEventId = null;
+let pendingTomatoEvent = null;
+let activeTomatoTargetId = null;
+let activeTomatoExpiresAt = 0;
+let activeTomatoShowAt = 0;
+let tomatoImpactTimeout = null;
+let openTomatoMenu = null;
 
 // --- Socket ---
 const socket = io();
@@ -36,6 +46,19 @@ socket.on("request_join", () => {
 socket.on("game_update", renderGame);
 
 socket.on("error", alert);
+socket.on("tomato_event", (event) => {
+  if (!lastState) {
+    pendingTomatoEvent = event;
+    return;
+  }
+  const me = lastState?.me;
+  const playerAreaEl = $("player-area");
+  if (playerAreaEl && me) {
+    playerAreaEl.setAttribute("data-player-id", me.player_id);
+    ensureTomatoSplat(playerAreaEl);
+  }
+  applyTomatoEffect(event, me, playerAreaEl);
+});
 
 if (chatForm) {
   chatForm.addEventListener("submit", (event) => {
@@ -148,6 +171,43 @@ function toggleSettle() {
   socket.emit("toggle_settle");
 }
 
+function toggleTomatoMenu(targetPlayerId, targetName, anchorEl) {
+  if (!targetPlayerId || !anchorEl) return;
+  const existing = document.querySelector(".tomato-menu");
+  if (existing) {
+    existing.remove();
+    openTomatoMenu = null;
+  }
+
+  const menu = document.createElement("div");
+  menu.className = "tomato-menu";
+  menu.innerHTML = `
+    <button class="tomato-menu-btn" type="button" aria-label="Throw tomato">
+      🍅
+    </button>
+  `;
+  const btn = menu.querySelector(".tomato-menu-btn");
+  btn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    socket.emit("throw_tomato", { target_player_id: targetPlayerId });
+    menu.remove();
+    openTomatoMenu = null;
+  });
+
+  anchorEl.appendChild(menu);
+  openTomatoMenu = menu;
+
+  const closeOnOutsideClick = (event) => {
+    if (!menu.isConnected) return;
+    if (menu.contains(event.target)) return;
+    if (anchorEl.contains(event.target)) return;
+    menu.remove();
+    openTomatoMenu = null;
+    document.removeEventListener("click", closeOnOutsideClick);
+  };
+  document.addEventListener("click", closeOnOutsideClick);
+}
+
 function toggleResultDetails() {
   showResultDetails = !showResultDetails;
   if (lastState) renderGame(lastState);
@@ -190,6 +250,10 @@ function renderGame(state) {
   // If we haven't joined yet, state.me can be null
   const me = state?.me;
   if (!me) return;
+
+  if (openTomatoMenu && !openTomatoMenu.isConnected) {
+    openTomatoMenu = null;
+  }
 
   const isObserverView = state.viewer_role === "observer";
   if (isObserverView !== isObserver) {
@@ -307,6 +371,7 @@ function renderGame(state) {
     const disconnectedClass = p.is_connected === false ? "disconnected" : "";
 
     pDiv.className = `player-card ${p.is_settled ? "settled" : "thinking"} ${disconnectedClass}`;
+    pDiv.setAttribute("data-player-id", p.player_id);
 
     let chipHtml = '<span class="no-chip">No Chip</span>';
     if (p.chip) {
@@ -355,13 +420,21 @@ function renderGame(state) {
       : "";
 
     pDiv.innerHTML = `
-      <div class="p-name">${p.name}</div>
+      <button class="p-name-btn" data-player-id="${p.player_id}" data-player-name="${p.name.replace(/"/g, "&quot;")}">${p.name}</button>
       <div class="p-status">${statusLabel}</div>
       ${kickHtml}
       ${handHtml}
       <div class="p-chip">${chipHtml}</div>
       ${historyHtml}
+      <div class="tomato-splat" aria-hidden="true">💥</div>
     `;
+    const nameBtn = pDiv.querySelector(".p-name-btn");
+    nameBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const targetId = nameBtn.getAttribute("data-player-id");
+      const targetName = nameBtn.getAttribute("data-player-name") || p.name;
+      toggleTomatoMenu(targetId, targetName, nameBtn);
+    });
     opponentsEl.appendChild(pDiv);
   });
 
@@ -457,8 +530,206 @@ function renderGame(state) {
 
   if (playerAreaEl) {
     playerAreaEl.classList.toggle("playing-settled", !isObserverView && me.is_settled);
+    ensureTomatoSplat(playerAreaEl);
+    playerAreaEl.setAttribute("data-player-id", me.player_id);
+  }
+  applyActiveTomatoTarget(me, playerAreaEl);
+  applyTomatoEffect(state?.tomato_event, me, playerAreaEl);
+  if (pendingTomatoEvent) {
+    applyTomatoEffect(pendingTomatoEvent, me, playerAreaEl);
+    pendingTomatoEvent = null;
   }
   updateDisconnectedTimers();
+}
+
+function ensureTomatoSplat(container) {
+  if (!container || container.querySelector(".tomato-splat")) return;
+  const splat = document.createElement("div");
+  splat.className = "tomato-splat";
+  splat.setAttribute("aria-hidden", "true");
+  splat.textContent = "💥";
+  container.appendChild(splat);
+}
+
+function applyTomatoEffect(event, me, playerAreaEl) {
+  if (!event || typeof event.at !== "number") {
+    document.querySelectorAll(".tomato-hit").forEach((el) => {
+      el.classList.remove("tomato-hit");
+    });
+    if (tomatoImpactTimeout) clearTimeout(tomatoImpactTimeout);
+    updateTomatoToast(null);
+    return;
+  }
+
+  const now = Date.now();
+  const ageMs = now - event.at * 1000;
+  if (ageMs > TOMATO_LIFETIME_MS) {
+    document.querySelectorAll(".tomato-hit").forEach((el) => {
+      el.classList.remove("tomato-hit");
+    });
+    if (tomatoImpactTimeout) clearTimeout(tomatoImpactTimeout);
+    updateTomatoToast(null);
+    return;
+  }
+
+  if (event.id && event.id === lastTomatoEventId) {
+    return;
+  }
+
+  const targetId = event.to_id;
+  const targetCard = targetId
+    ? document.querySelector(`.player-card[data-player-id="${targetId}"]`)
+    : null;
+  const targetEl = targetCard || (me && me.player_id === targetId ? playerAreaEl : null);
+
+  const sourceId = event.from_id;
+  const sourceCard = sourceId
+    ? document.querySelector(`.player-card[data-player-id="${sourceId}"]`)
+    : null;
+  const sourceEl = sourceCard || (me && me.player_id === sourceId ? playerAreaEl : null);
+
+  if (event.id) {
+    lastTomatoEventId = event.id;
+  }
+  if (targetId) {
+    activeTomatoTargetId = targetId;
+    activeTomatoExpiresAt = event.at * 1000 + TOMATO_LIFETIME_MS;
+    activeTomatoShowAt = Date.now() + TOMATO_FLIGHT_MS;
+  }
+
+  if (sourceEl && targetEl) {
+    animateTomatoFlight(sourceEl, targetEl);
+    scheduleTomatoImpact(targetId, me, playerAreaEl, TOMATO_FLIGHT_MS);
+    updateTomatoToast(`🍅 ${event.from_name} splats ${event.to_name}!`);
+    scheduleTomatoClear();
+  } else if (targetEl) {
+    targetEl.classList.add("tomato-hit");
+    updateTomatoToast(`🍅 ${event.from_name} splats ${event.to_name}!`);
+    scheduleTomatoClear();
+  } else {
+    updateTomatoToast(`🍅 ${event.from_name} splats ${event.to_name}!`);
+    scheduleTomatoClear();
+  }
+}
+
+function applyActiveTomatoTarget(me, playerAreaEl) {
+  const now = Date.now();
+  if (!activeTomatoTargetId || now > activeTomatoExpiresAt) {
+    document.querySelectorAll(".tomato-hit").forEach((el) => {
+      el.classList.remove("tomato-hit");
+    });
+    activeTomatoTargetId = null;
+    activeTomatoExpiresAt = 0;
+    activeTomatoShowAt = 0;
+    if (tomatoImpactTimeout) clearTimeout(tomatoImpactTimeout);
+    return;
+  }
+  if (activeTomatoShowAt && now < activeTomatoShowAt) {
+    scheduleTomatoImpact(activeTomatoTargetId, me, playerAreaEl, activeTomatoShowAt - now);
+    return;
+  }
+
+  const targetCard = document.querySelector(
+    `.player-card[data-player-id="${activeTomatoTargetId}"]`
+  );
+  const targetEl = targetCard || (me && me.player_id === activeTomatoTargetId ? playerAreaEl : null);
+  if (targetEl) {
+    targetEl.classList.add("tomato-hit");
+  }
+}
+
+function scheduleTomatoImpact(targetId, me, playerAreaEl, delayMs) {
+  if (!targetId) return;
+  if (tomatoImpactTimeout) clearTimeout(tomatoImpactTimeout);
+  tomatoImpactTimeout = setTimeout(() => {
+    const targetCard = document.querySelector(
+      `.player-card[data-player-id="${targetId}"]`
+    );
+    const targetEl =
+      targetCard || (me && me.player_id === targetId ? playerAreaEl : null);
+    if (targetEl) {
+      targetEl.classList.add("tomato-hit");
+    }
+  }, Math.max(0, delayMs));
+}
+
+function animateTomatoFlight(sourceEl, targetEl) {
+  const container = $("game-container");
+  if (!container) return;
+
+  const cRect = container.getBoundingClientRect();
+  const sRect = sourceEl.getBoundingClientRect();
+  const tRect = targetEl.getBoundingClientRect();
+
+  const startX = sRect.left + sRect.width / 2 - cRect.left;
+  const startY = sRect.top + sRect.height / 2 - cRect.top;
+  const endX = tRect.left + tRect.width / 2 - cRect.left;
+  const endY = tRect.top + tRect.height / 2 - cRect.top;
+
+  const dx = endX - startX;
+  const dy = endY - startY;
+
+  const tomato = document.createElement("div");
+  tomato.className = "tomato-flight";
+  tomato.textContent = "🍅";
+  tomato.style.left = `${startX}px`;
+  tomato.style.top = `${startY}px`;
+  tomato.style.transform = "translate(-50%, -50%) scale(0.6) rotate(-15deg)";
+  container.appendChild(tomato);
+
+  requestAnimationFrame(() => {
+    tomato.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(1) rotate(10deg)`;
+  });
+
+  const cleanup = () => {
+    tomato.removeEventListener("transitionend", cleanup);
+    tomato.remove();
+    targetEl.classList.add("tomato-hit");
+  };
+  tomato.addEventListener("transitionend", cleanup);
+  setTimeout(() => {
+    if (!tomato.isConnected) return;
+    tomato.removeEventListener("transitionend", cleanup);
+    tomato.remove();
+    targetEl.classList.add("tomato-hit");
+  }, TOMATO_FLIGHT_MS + 200);
+}
+
+function scheduleTomatoClear() {
+  if (tomatoClearTimeout) clearTimeout(tomatoClearTimeout);
+  tomatoClearTimeout = setTimeout(() => {
+    document.querySelectorAll(".tomato-hit").forEach((el) => {
+      el.classList.remove("tomato-hit");
+    });
+    document.querySelectorAll(".tomato-flight").forEach((el) => {
+      el.remove();
+    });
+    activeTomatoTargetId = null;
+    activeTomatoExpiresAt = 0;
+    activeTomatoShowAt = 0;
+    if (tomatoImpactTimeout) clearTimeout(tomatoImpactTimeout);
+    updateTomatoToast(null);
+  }, TOMATO_LIFETIME_MS);
+}
+
+function updateTomatoToast(text) {
+  const container = $("game-container");
+  if (!container) return;
+  let toast = $("tomato-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "tomato-toast";
+    container.appendChild(toast);
+  }
+
+  if (!text) {
+    toast.classList.remove("show");
+    toast.textContent = "";
+    return;
+  }
+
+  toast.textContent = text;
+  toast.classList.add("show");
 }
 
 function createCardDiv(card) {
