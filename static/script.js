@@ -214,6 +214,7 @@ function renderGame(state) {
   const settleBtn = $("settle-btn");
   const returnBtn = $("return-btn");
   const myNameEl = $("my-name");
+  const playerAreaEl = $("player-area");
   const {
     phase,
     chip_color,
@@ -452,6 +453,10 @@ function renderGame(state) {
     settleBtn.innerText = "I'm Settled";
     settleBtn.classList.remove("active");
     chipBankEl.classList.remove("disabled");
+  }
+
+  if (playerAreaEl) {
+    playerAreaEl.classList.toggle("playing-settled", !isObserverView && me.is_settled);
   }
   updateDisconnectedTimers();
 }
